@@ -1,0 +1,22 @@
+{
+  "name": "itrack",
+  "version": "1.0.0",
+  "description": "ITrack - Sistema web para la gestión y control de activos tecnológicos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "migrate-emails": "node scripts/add-emails.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.4",
+    "express-session": "^1.19.0",
+    "html5-qrcode": "^2.3.8",
+    "mongodb": "^7.2.0",
+    "mongoose": "^9.6.2",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.9",
+    "qrcode": "^1.5.4"
+  }
+}
