@@ -24,12 +24,25 @@ btnLogout.addEventListener('click', logout);
 
 async function fetchApi(endpoint, options = {}) {
   const url = apiBase + endpoint;
-  const res = await fetch(url, options);
+  const res = await fetch(url, { ...options, credentials: 'include' });
+  const contentType = res.headers.get('content-type') || '';
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || 'Error al cargar datos');
+    let error = text || 'Error al cargar datos';
+    if (contentType.includes('application/json')) {
+      try {
+        const json = JSON.parse(text);
+        error = json.error || json.message || JSON.stringify(json);
+      } catch (parseError) {
+        // ignore parse error
+      }
+    }
+    throw new Error(error);
   }
-  return res.json();
+  if (contentType.includes('application/json')) {
+    return JSON.parse(text);
+  }
+  return text;
 }
 
 function setActiveTab(button) {
@@ -68,6 +81,9 @@ function renderAuthScreen(message = '') {
           <label class="form-label">Contraseña</label>
           <input class="form-control" id="loginPassword" name="password" type="password" required />
         </div>
+        <div class="mb-3">
+          <a href="#" id="forgotPasswordLink" class="link-primary small">¿Olvidaste tu contraseña?</a>
+        </div>
         <button type="submit" class="btn btn-primary">Entrar</button>
       </form>
     </div>
@@ -84,6 +100,10 @@ function renderAuthScreen(message = '') {
         <div class="mb-3">
           <label class="form-label">Usuario</label>
           <input class="form-control" id="registerUsername" name="username" type="text" required />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Correo electrónico</label>
+          <input class="form-control" id="registerEmail" name="email" type="email" required />
         </div>
         <div class="mb-3">
           <label class="form-label">Contraseña</label>
@@ -112,6 +132,11 @@ function renderAuthScreen(message = '') {
     }
   });
 
+  document.getElementById('forgotPasswordLink').addEventListener('click', event => {
+    event.preventDefault();
+    renderForgotPasswordScreen();
+  });
+
   document.getElementById('registerForm').addEventListener('submit', async event => {
     event.preventDefault();
     try {
@@ -119,6 +144,7 @@ function renderAuthScreen(message = '') {
       const payload = {
         nombre: formData.get('nombre'),
         username: formData.get('username'),
+        email: formData.get('email'),
         password: formData.get('password')
       };
       const result = await postApi('/api/register', payload);
@@ -129,6 +155,50 @@ function renderAuthScreen(message = '') {
       renderAuthScreen(message);
     }
   });
+}
+
+function renderForgotPasswordScreen(message = '') {
+  mainNav.style.display = 'none';
+  dashboardCards.style.display = 'none';
+  contentArea.innerHTML = `
+    <div class="row justify-content-center">
+      <div class="col-lg-6">
+        <div class="card border-0 shadow-sm p-4">
+          <h3 class="card-title">Recuperar contraseña</h3>
+          <p class="text-muted">Ingresa tu usuario y correo registrado para recibir una contraseña temporal por correo.</p>
+          ${message ? renderAlert('info', message) : ''}
+          <form id="forgotPasswordForm">
+            <div class="mb-3">
+              <label class="form-label">Usuario</label>
+              <input class="form-control" id="forgotUsername" name="username" type="text" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Correo electrónico</label>
+              <input class="form-control" id="forgotEmail" name="email" type="email" required />
+            </div>
+            <button type="submit" class="btn btn-primary">Enviar recuperación</button>
+            <button type="button" id="backToLogin" class="btn btn-link">Volver al inicio de sesión</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('forgotPasswordForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      const formData = new FormData(event.target);
+      await postApi('/api/forgot-password/email', {
+        username: formData.get('username'),
+        email: formData.get('email')
+      });
+      renderForgotPasswordScreen('Se envió una contraseña temporal a tu correo. Revisa la bandeja de entrada.');
+    } catch (error) {
+      renderForgotPasswordScreen(error.message || 'No se pudo enviar la recuperación. Intenta de nuevo.');
+    }
+  });
+
+  document.getElementById('backToLogin').addEventListener('click', () => renderAuthScreen());
 }
 
 function renderApp() {
@@ -346,10 +416,16 @@ async function loadDashboardData() {
 
 async function deleteRecord(endpoint, id, callback) {
   if (!confirm('¿Estás seguro de que deseas eliminar este registro?')) return;
+  const safeId = id == null ? '' : String(id).trim();
+  if (!safeId) {
+    alert('No se pudo identificar el registro para eliminar.');
+    return;
+  }
   try {
-    await fetchApi(`${endpoint}/${id}`, { method: 'DELETE' });
+    await fetchApi(`${endpoint}/${encodeURIComponent(safeId)}`, { method: 'DELETE' });
     callback();
   } catch (error) {
+    console.error(error);
     alert('Error al eliminar. Intenta nuevamente.');
   }
 }
@@ -432,15 +508,18 @@ async function loadUsuariosData() {
     const headers = ['ID', 'Nombre', 'Cargo', 'Área'];
     if (canAdmin) headers.push('Acción');
 
-    const rows = usuarios.map(usuario => `
-      <tr>
-        <td>${usuario.id}</td>
-        <td>${usuario.nombre}</td>
-        <td>${usuario.cargo}</td>
-        <td>${usuario.area}</td>
-        ${canAdmin ? `<td><button class="btn btn-sm btn-danger" onclick="deleteRecord('/api/usuarios', ${usuario.id}, loadUsuariosData)">Eliminar</button></td>` : ''}
-      </tr>
-    `).join('');
+    const rows = usuarios.map(usuario => {
+      const userId = usuario._id || usuario.id || '';
+      return `
+        <tr>
+          <td>${userId}</td>
+          <td>${usuario.nombre}</td>
+          <td>${usuario.cargo}</td>
+          <td>${usuario.area}</td>
+          ${canAdmin ? `<td><button class="btn btn-sm btn-danger" onclick="deleteRecord('/api/usuarios', '${userId}', loadUsuariosData)">Eliminar</button></td>` : ''}
+        </tr>
+      `;
+    }).join('');
 
     contentArea.innerHTML = `
       ${createTable('Usuarios registrados', 'Lista de usuarios asignados a equipos y áreas del inventario.', headers, rows)}
@@ -478,13 +557,16 @@ async function loadAreasData() {
     const headers = ['ID', 'Área'];
     if (canAdmin) headers.push('Acción');
 
-    const rows = areas.map(area => `
-      <tr>
-        <td>${area.id}</td>
-        <td>${area.nombre}</td>
-        ${canAdmin ? `<td><button class="btn btn-sm btn-danger" onclick="deleteRecord('/api/areas', ${area.id}, loadAreasData)">Eliminar</button></td>` : ''}
-      </tr>
-    `).join('');
+    const rows = areas.map(area => {
+      const areaId = area._id || area.id || '';
+      return `
+        <tr>
+          <td>${areaId}</td>
+          <td>${area.nombre}</td>
+          ${canAdmin ? `<td><button class="btn btn-sm btn-danger" onclick="deleteRecord('/api/areas', '${areaId}', loadAreasData)">Eliminar</button></td>` : ''}
+        </tr>
+      `;
+    }).join('');
 
     contentArea.innerHTML = `
       ${createTable('Áreas registradas', 'Departamentos y áreas donde se encuentran los equipos inventariados.', headers, rows)}
@@ -605,15 +687,26 @@ async function loadMantenimientosData() {
 
           const response = await fetch('/api/reportes', {
             method: 'POST',
-            body: formData
+            body: formData,
+            credentials: 'include'
           });
-          if (!response.ok) throw new Error('Error al enviar el reporte');
+          const responseText = await response.text();
+          if (!response.ok) {
+            let message = 'No se pudo enviar el reporte';
+            try {
+              const payload = JSON.parse(responseText);
+              message = payload.error || message;
+            } catch (e) {
+              if (responseText) message = responseText;
+            }
+            throw new Error(message);
+          }
           alert('Reporte enviado correctamente con evidencia ✅');
           document.getElementById('formMantenimientos').reset();
           loadMantenimientosData();
         } catch (error) {
           console.error(error);
-          alert('No se pudo enviar el reporte');
+          alert(error.message || 'No se pudo enviar el reporte');
         }
       });
     }
@@ -641,7 +734,7 @@ document.addEventListener('click', async (e) => {
         const doc = new jsPDF();
         let activos = [];
         try {
-            const response = await fetch('/api/activos', { method: 'GET' });
+            const response = await fetch('/api/activos', { method: 'GET', credentials: 'include' });
             if (response.status === 401 || response.status === 403) {
                 alert("Sesión expirada o no autorizada. Por favor, vuelve a iniciar sesión.");
                 return;

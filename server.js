@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
@@ -9,6 +10,8 @@ const sendMail = require("./mailer");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const multer = require('multer');
+const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const smtpConfigured = process.env.EMAIL_USER && process.env.EMAIL_PASS;
 console.log(smtpConfigured
@@ -18,7 +21,7 @@ console.log(smtpConfigured
 // Configuración para almacenar los archivos en la carpeta de subidas
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'public/uploads/');
+    cb(null, UPLOAD_DIR);
   },
   filename: function (req, file, cb) {
     // Esto les cambia el nombre por la fecha actual para que no se dupliquen
@@ -49,8 +52,12 @@ mongoose.connect(process.env.MONGODB_URI, {
   console.log('✅ MongoDB conectado con writeConcern configurado');
   console.log('📚 Base de datos usada:', mongoose.connection.db.databaseName);
   await crearUsuariosIniciales();
-  const server = app.listen(PORT, () => {
-    console.log(`✅ ITrack server escuchando en http://localhost:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`✅ ITrack server escuchando en http://127.0.0.1:${PORT} y http://localhost:${PORT}`);
+    if (HOST !== '0.0.0.0') {
+      console.log(`✅ Servidor ligado al host: ${HOST}`);
+    }
   });
 
   server.on('error', (err) => {
@@ -168,6 +175,7 @@ const AuthUser = mongoose.model('AuthUser', authUserSchema);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -180,31 +188,43 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 async function crearUsuariosIniciales() {
   const total = await AuthUser.countDocuments();
+  const defaultUsers = [
+    {
+      username: 'admin',
+      nombre: 'Administrador',
+      role: 'admin',
+      email: 'admin@itrack.local',
+      passwordHash: bcrypt.hashSync('Admin1234', 10)
+    },
+    {
+      username: 'tecnico',
+      nombre: 'Técnico ITrack',
+      role: 'technician',
+      email: 'tecnico@itrack.local',
+      passwordHash: bcrypt.hashSync('Tech1234', 10)
+    },
+    {
+      username: 'usuario',
+      nombre: 'Usuario ITrack',
+      role: 'user',
+      email: 'usuario@itrack.local',
+      passwordHash: bcrypt.hashSync('User1234', 10)
+    }
+  ];
+
   if (total === 0) {
-    await AuthUser.insertMany([
-      {
-        username: 'admin',
-        nombre: 'Administrador',
-        role: 'admin',
-        email: 'admin@itrack.local',
-        passwordHash: bcrypt.hashSync('Admin1234', 10)
-      },
-      {
-        username: 'tecnico',
-        nombre: 'Técnico ITrack',
-        role: 'technician',
-        email: 'tecnico@itrack.local',
-        passwordHash: bcrypt.hashSync('Tech1234', 10)
-      },
-      {
-        username: 'usuario',
-        nombre: 'Usuario ITrack',
-        role: 'user',
-        email: 'usuario@itrack.local',
-        passwordHash: bcrypt.hashSync('User1234', 10)
-      }
-    ]);
+    await AuthUser.insertMany(defaultUsers);
     console.log('Usuarios iniciales creados');
+    return;
+  }
+
+  for (const defaultUser of defaultUsers) {
+    const existing = await AuthUser.findOne({ username: defaultUser.username });
+    if (existing && !existing.email) {
+      existing.email = defaultUser.email;
+      await existing.save();
+      console.log(`Se agregó email por defecto al usuario ${defaultUser.username}`);
+    }
   }
 }
 
@@ -236,7 +256,7 @@ app.post('/api/register', async (req, res) => {
     const { username, password, nombre, email } = req.body;
     console.log('📝 Registro intento:', { username, nombre, email });
     
-    if (!username || !password || !nombre) {
+    if (!username || !password || !nombre || !email) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
     }
     
@@ -251,7 +271,7 @@ app.post('/api/register', async (req, res) => {
       username: username.toLowerCase(),
       nombre,
       role: 'user',
-      email: email ? email.toLowerCase() : undefined,
+      email: email.toLowerCase(),
       passwordHash
     });
     
@@ -628,7 +648,7 @@ app.get('/api/test-email', async (req, res) => {
   }
 });
 
-// NUEVA RUTA POST CORREGIDA CON MULTER
+
 app.post('/api/reportes', requireAuth, upload.single('archivo'), async (req, res) => {
   try {
     if (!req.body.equipo || !req.body.problema || !req.body.descripcion) {
