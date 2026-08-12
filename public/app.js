@@ -626,7 +626,10 @@ async function loadMantenimientosData() {
                   <td>${m.fecha}</td>
                   <td><span class="badge bg-warning text-dark">${m.tipo}</span></td>
                   <td>${m.responsable}</td>
-                  <td>${m.descripcion}</td>
+                  <td>
+                    ${m.descripcion}
+                    ${m.archivo ? `<br><a href="${m.archivo}" target="_blank" rel="noopener noreferrer" class="btn btn-link btn-sm p-0 mt-2">Ver evidencia</a>` : ''}
+                  </td>
                   ${canDelete ? `<td><button class="btn btn-sm btn-danger" onclick="deleteRecord('/api/mantenimientos', '${m._id}', loadMantenimientosData)">Eliminar</button></td>` : ''}
                 </tr>
               `;

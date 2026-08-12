@@ -140,7 +140,8 @@ const mantenimientoSchema = new mongoose.Schema({
   fecha: String,
   tipo: String,
   responsable: String,
-  descripcion: String
+  descripcion: String,
+  archivo: String
 });
 
 const reporteSchema = new mongoose.Schema({
@@ -669,12 +670,15 @@ app.post('/api/reportes', requireAuth, upload.single('archivo'), async (req, res
       estado: 'Pendiente'
     });
 
+    const archivoRuta = req.file ? `/uploads/${req.file.filename}` : '';
+
     await Mantenimiento.create({
       activoId: req.body.activoId,
       fecha: new Date().toLocaleDateString(),
       tipo: req.body.problema,
       responsable: req.session.user.nombre,
-      descripcion: req.body.descripcion
+      descripcion: req.body.descripcion,
+      archivo: archivoRuta
     });
 
     return res.status(201).json(nuevoReporte);
